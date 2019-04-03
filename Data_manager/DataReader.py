@@ -46,7 +46,7 @@ class DataReader(object):
     DATASET_SUBFOLDER_ORIGINAL = "original/"
 
     # Available URM split
-    AVAILABLE_URM = ["URM_train", "URM_validation", "URM_test"]
+    AVAILABLE_URM = ["URM_all"]
 
     # Available ICM for the given dataset, there might be no ICM, one or many
     AVAILABLE_ICM = []
@@ -61,7 +61,7 @@ class DataReader(object):
     IS_IMPLICIT = False
 
 
-    def __init__(self, reload_from_original_data = False):
+    def __init__(self, reload_from_original_data = False, ICM_to_load_list = None):
 
         super(DataReader, self).__init__()
 
@@ -71,6 +71,13 @@ class DataReader(object):
 
         self.item_original_ID_to_index = {}
         self.user_original_ID_to_index = {}
+
+        if ICM_to_load_list is None:
+            self.ICM_to_load_list = self.AVAILABLE_ICM.copy()
+        else:
+            assert all([ICM_to_load in self.AVAILABLE_ICM for ICM_to_load in ICM_to_load_list]), \
+                "DataReader: ICM_to_load_list contains ICM names which are not available for the current DataReader"
+            self.ICM_to_load_list = ICM_to_load_list.copy()
 
 
     def is_implicit(self):
@@ -83,12 +90,21 @@ class DataReader(object):
     def get_ICM_from_name(self, ICM_name):
         return getattr(self, ICM_name).copy()
 
+    def get_URM_from_name(self, URM_name):
+        return getattr(self, URM_name).copy()
+
+
     def get_ICM_feature_to_index_mapper_from_name(self, ICM_name):
         return getattr(self, "tokenToFeatureMapper_" + ICM_name).copy()
 
     def get_loaded_ICM_names(self):
+        return self.ICM_to_load_list.copy()
+
+    def get_all_available_ICM_names(self):
         return self.AVAILABLE_ICM.copy()
 
+    def get_loaded_URM_names(self):
+        return self.AVAILABLE_URM.copy()
 
     def get_loaded_ICM_dict(self):
 
@@ -110,17 +126,51 @@ class DataReader(object):
 
         n_users, n_items = self.URM_all.shape
 
+        n_interactions = self.URM_all.nnz
+
+
+        URM_all = sps.csr_matrix(self.URM_all)
+        user_profile_length = np.ediff1d(URM_all.indptr)
+
+        max_interactions_per_user = user_profile_length.max()
+        avg_interactions_per_user = n_interactions/n_users
+        min_interactions_per_user = user_profile_length.min()
+
+        URM_all = sps.csc_matrix(self.URM_all)
+        item_profile_length = np.ediff1d(URM_all.indptr)
+
+        max_interactions_per_item = item_profile_length.max()
+        avg_interactions_per_item = n_interactions/n_items
+        min_interactions_per_item = item_profile_length.min()
+
+
         print("DataReader: current dataset is: {}\n"
               "\tNumber of items: {}\n"
               "\tNumber of users: {}\n"
               "\tNumber of interactions in URM_all: {}\n"
-              "\tInteraction density: {:.2E}".format(
-            self.__class__, n_items, n_users,
-            self.URM_all.nnz, self.URM_all.nnz/(n_items*n_users)))
+              "\tInteraction density: {:.2E}\n"
+              "\tInteractions per user:\n"
+              "\t\t Min: {:.2E}\n"
+              "\t\t Avg: {:.2E}\n"    
+              "\t\t Max: {:.2E}\n"     
+              "\tInteractions per item:\n"    
+              "\t\t Min: {:.2E}\n"
+              "\t\t Avg: {:.2E}\n"    
+              "\t\t Max: {:.2E}\n".format(
+            self.__class__,
+            n_items,
+            n_users,
+            n_interactions,
+            n_interactions/(n_items*n_users),
+            min_interactions_per_user,
+            avg_interactions_per_user,
+            max_interactions_per_user,
+            min_interactions_per_item,
+            avg_interactions_per_item,
+            max_interactions_per_item
+        ))
 
 
-    def _get_available_ICM_names_for_dataReader(self):
-        return self.AVAILABLE_ICM.copy()
 
     def _get_dataset_name_root(self):
         """
@@ -177,40 +227,29 @@ class DataReader(object):
                 pass
 
 
-        # If directory does not exist, create
-        if not os.path.exists(save_folder_path):
-            os.makedirs(save_folder_path)
-
         self._load_from_original_file()
 
         print("DataReader: verifying data consistency...")
         self._verify_data_consistency()
         print("DataReader: verifying data consistency... Passed!")
 
-
-        print("DataReader: saving URM_train and URM_test")
-
-
-
         if save_folder_path not in [False]:
 
             # If directory does not exist, create
             if not os.path.exists(save_folder_path):
-
                 print("DataReader: Creating folder '{}'".format(save_folder_path))
                 os.makedirs(save_folder_path)
 
-                print("DataReader: Saving {}...".format("URM_all"))
-                sps.save_npz(save_folder_path + "URM_all.npz", self.URM_all)
-
-                for ICM_name in self.get_loaded_ICM_names():
-
-                    print("DataReader: Saving {}...".format(ICM_name))
-                    sps.save_npz(save_folder_path + "{}.npz".format(ICM_name), self.get_ICM_from_name(ICM_name))
-
-
             else:
                 print("DataReader: Found already existing folder '{}'".format(save_folder_path))
+
+            for URM_name in self.get_loaded_URM_names():
+                print("DataReader: Saving {}...".format(URM_name))
+                sps.save_npz(save_folder_path + "{}.npz".format(URM_name), self.get_URM_from_name(URM_name))
+
+            for ICM_name in self.get_loaded_ICM_names():
+                print("DataReader: Saving {}...".format(ICM_name))
+                sps.save_npz(save_folder_path + "{}.npz".format(ICM_name), self.get_ICM_from_name(ICM_name))
 
 
         self._save_mappers(save_folder_path)
@@ -294,9 +333,9 @@ class DataReader(object):
 
     def _load_from_saved_sparse_matrix(self, save_folder_path):
 
-        file_names_to_load = self._get_available_ICM_names_for_dataReader()
-        # file_names_to_load = self.AVAILABLE_ICM.copy()
-        file_names_to_load.append("URM_all")
+        file_names_to_load = self.get_loaded_ICM_names()
+
+        file_names_to_load.extend(self.get_loaded_URM_names())
 
         for file_name in file_names_to_load:
 
@@ -322,7 +361,7 @@ class DataReader(object):
         mappers_list = list(self.GLOBAL_MAPPER)
         mappers_list.extend(self.DATASET_SPECIFIC_MAPPER)
 
-        for ICM_name in self.AVAILABLE_ICM:
+        for ICM_name in self.get_loaded_ICM_names():
             mappers_list.append("tokenToFeatureMapper_{}".format(ICM_name))
 
 
@@ -342,7 +381,7 @@ class DataReader(object):
         mappers_list = list(self.GLOBAL_MAPPER)
         mappers_list.extend(self.DATASET_SPECIFIC_MAPPER)
 
-        for ICM_name in self.AVAILABLE_ICM:
+        for ICM_name in self.get_loaded_ICM_names():
             mappers_list.append("tokenToFeatureMapper_{}".format(ICM_name))
 
         for mapper_name in mappers_list:

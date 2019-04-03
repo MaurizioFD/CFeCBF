@@ -22,28 +22,13 @@ class MyTestCase(unittest.TestCase):
         TopK = 20
 
         dense_input = np.random.random((numRows, numRows))
-        dense_output = similarityMatrixTopK(dense_input, k=TopK, forceSparseOutput=False)
+        dense_output = similarityMatrixTopK(dense_input, k=TopK)
 
         numExpectedNonZeroCells = TopK*numRows
 
         numNonZeroCells = np.sum(dense_output!=0)
 
         self.assertEqual(numExpectedNonZeroCells, numNonZeroCells, "DenseToDense incorrect")
-
-
-    def test_similarityMatrixTopK_denseToSparse(self):
-
-        numRows = 100
-
-        TopK = 20
-
-        dense = np.random.random((numRows, numRows))
-
-        sparse = similarityMatrixTopK(dense, k=TopK, forceSparseOutput=True)
-        dense = similarityMatrixTopK(dense, k=TopK, forceSparseOutput=False)
-
-
-        self.assertTrue(np.equal(dense, sparse.todense()).all(), "denseToSparse incorrect")
 
 
     def test_similarityMatrixTopK_sparseToSparse(self):
@@ -53,16 +38,17 @@ class MyTestCase(unittest.TestCase):
         TopK = 5
 
         dense_input = np.random.random((numRows, numRows))
-        sparse_input = sps.csr_matrix(dense_input)
 
-        dense_output = similarityMatrixTopK(dense_input, k=TopK, forceSparseOutput=False, inplace=False)
-        sparse_output = similarityMatrixTopK(sparse_input, k=TopK, forceSparseOutput=True)
-
-        self.assertTrue(np.allclose(dense_output, sparse_output.todense()), "sparseToSparse CSR incorrect")
+        topk_on_dense_input = similarityMatrixTopK(dense_input, k=TopK)
 
         sparse_input = sps.csc_matrix(dense_input)
-        sparse_output = similarityMatrixTopK(sparse_input, k=TopK, forceSparseOutput=True)
-        self.assertTrue(np.allclose(dense_output, sparse_output.todense()), "sparseToSparse CSC incorrect")
+        topk_on_sparse_input = similarityMatrixTopK(sparse_input, k=TopK)
+
+        topk_on_dense_input = topk_on_dense_input.toarray()
+        topk_on_sparse_input = topk_on_sparse_input.toarray()
+
+        self.assertTrue(np.allclose(topk_on_dense_input, topk_on_sparse_input), "sparseToSparse CSC incorrect")
+
 
 if __name__ == '__main__':
 

@@ -156,7 +156,7 @@ def urllretrieve_reporthook(count, block_size, total_size):
 
     progress_size = int(count * block_size)
     speed = int(progress_size / (1024 * duration))
-    percent = min(int(count*block_size*100/total_size),100)
+    percent = min(float(count*block_size*100/total_size),100)
 
     sys.stdout.write("\rDataReader: Downloaded {:.2f}%, {:.2f} MB, {:.0f} KB/s, {:.0f} seconds passed".format(
                     percent, progress_size / (1024 * 1024), speed, duration))

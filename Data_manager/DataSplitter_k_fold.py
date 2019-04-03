@@ -369,6 +369,9 @@ class DataSplitter_Warm_k_fold(DataSplitter_k_fold):
                         open(save_folder_path + "{}".format(ICM_name), "wb"),
                         protocol=pickle.HIGHEST_PROTOCOL)
 
+            pickle.dump(self.dataReader_object.get_ICM_feature_to_index_mapper_from_name(ICM_name),
+                        open(save_folder_path + "tokenToFeatureMapper_{}".format(ICM_name), "wb"),
+                        protocol=pickle.HIGHEST_PROTOCOL)
 
         print("DataSplitter: Split complete")
 

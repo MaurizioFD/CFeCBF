@@ -6,20 +6,24 @@
 """
 
 import numpy as np
-import pickle
+import pickle, os
+from Base.Recommender_utils import check_matrix
 
 
-class Recommender(object):
-    """Abstract Recommender"""
+class BaseRecommender(object):
+    """Abstract BaseRecommender"""
 
     RECOMMENDER_NAME = "Recommender_Base_Class"
 
-    def __init__(self):
+    def __init__(self, URM_train):
 
-        super(Recommender, self).__init__()
+        super(BaseRecommender, self).__init__()
 
-        self.URM_train = None
-        self.sparse_weights = True
+        self.URM_train = check_matrix(URM_train.copy(), 'csr', dtype=np.float32)
+        self.URM_train.eliminate_zeros()
+
+        self.n_users, self.n_items = self.URM_train.shape
+
         self.normalize = False
 
         self.filterTopPop = False
@@ -34,6 +38,15 @@ class Recommender(object):
 
     def get_URM_train(self):
         return self.URM_train.copy()
+
+    def set_URM_train(self, URM_train_new, **kwargs):
+
+        assert self.URM_train.shape == URM_train_new.shape, "{}: set_URM_train old and new URM train have different shapes".format(self.RECOMMENDER_NAME)
+
+        if len(kwargs)>0:
+            print("{}: set_URM_train keyword arguments not supported for this recommender class. Received: {}".format(self.RECOMMENDER_NAME, kwargs))
+
+        self.URM_train = URM_train_new.copy()
 
 
     def set_items_to_ignore(self, items_to_ignore):
@@ -68,19 +81,59 @@ class Recommender(object):
 
 
 
+    def _get_temp_folder(self, custom_temp_folder = None):
+        """
+        The function returns the path of a folder in result_experiments
+        The function guarantees that the folder is not already existent and it creates it
+        :return:
+        """
+
+        if custom_temp_folder is None:
+
+            default_temp_folder_name = "./result_experiments/__Temp_{}".format(self.RECOMMENDER_NAME)
+            progressive_temp_folder_name = default_temp_folder_name
+
+            counter_suffix = 0
+
+            while os.path.isdir(progressive_temp_folder_name):
+
+                counter_suffix += 1
+                progressive_temp_folder_name = default_temp_folder_name + "_" + str(counter_suffix)
+
+            os.makedirs(progressive_temp_folder_name)
+
+            print("{}: Using default Temp folder '{}'".format(self.RECOMMENDER_NAME, progressive_temp_folder_name))
+
+            return progressive_temp_folder_name
+
+        else:
+
+            if not os.path.isdir(custom_temp_folder):
+                os.makedirs(custom_temp_folder)
+
+            print("{}: Using custom Temp folder '{}'".format(self.RECOMMENDER_NAME, custom_temp_folder))
+
+            return custom_temp_folder
+
+
+
+    def _compute_item_score(self, user_id_array, items_to_compute = None):
+        """
+
+        :param user_id_array:       array containing the user indices whose recommendations need to be computed
+        :param items_to_compute:    array containing the items whose scores are to be computed.
+                                        If None, all items are computed, otherwise discarded items will have as score -np.inf
+        :return:                    array (len(user_id_array), n_items) with the score.
+        """
+        raise NotImplementedError("BaseRecommender: compute_item_score not assigned for current recommender, unable to compute prediction scores")
 
 
 
 
-    def compute_item_score(self, user_id):
-        raise NotImplementedError("Recommender: compute_item_score not assigned for current recommender, unable to compute prediction scores")
 
 
-
-
-
-
-    def recommend(self, user_id_array, cutoff = None, remove_seen_flag=True, remove_top_pop_flag = False, remove_CustomItems_flag = False):
+    def recommend(self, user_id_array, cutoff = None, remove_seen_flag=True, items_to_compute = None,
+                  remove_top_pop_flag = False, remove_CustomItems_flag = False, return_scores = False):
 
         # If is a scalar transform it in a 1-cell array
         if np.isscalar(user_id_array):
@@ -95,7 +148,7 @@ class Recommender(object):
 
         # Compute the scores using the model-specific function
         # Vectorize over all users in user_id_array
-        scores_batch = self.compute_item_score(user_id_array)
+        scores_batch = self._compute_item_score(user_id_array, items_to_compute=items_to_compute)
 
 
         # if self.normalize:
@@ -137,9 +190,6 @@ class Recommender(object):
         if remove_CustomItems_flag:
             scores_batch = self._remove_CustomItems_on_scores(scores_batch)
 
-        # scores_batch = np.arange(0,3260).reshape((1, -1))
-        # scores_batch = np.repeat(scores_batch, 1000, axis = 0)
-
         # relevant_items_partition is block_size x cutoff
         relevant_items_partition = (-scores_batch).argpartition(cutoff, axis=1)[:,0:cutoff]
 
@@ -150,78 +200,31 @@ class Recommender(object):
         relevant_items_partition_sorting = np.argsort(-relevant_items_partition_original_value, axis=1)
         ranking = relevant_items_partition[np.arange(relevant_items_partition.shape[0])[:, None], relevant_items_partition_sorting]
 
-        ranking_list = ranking.tolist()
+        ranking_list = [None] * ranking.shape[0]
 
+        # Remove from the recommendation list any item that has a -inf score
+        # Since -inf is a flag to indicate an item to remove
         for user_index in range(len(user_id_array)):
-            user_recommendation_list = np.array(ranking_list[user_index])
+            user_recommendation_list = ranking[user_index]
             user_item_scores = scores_batch[user_index, user_recommendation_list]
 
-            user_item_scores_mask = np.logical_not(np.isinf(user_item_scores))
+            not_inf_scores_mask = np.logical_not(np.isinf(user_item_scores))
 
-            user_recommendation_list = user_recommendation_list[user_item_scores_mask]
+            user_recommendation_list = user_recommendation_list[not_inf_scores_mask]
             ranking_list[user_index] = user_recommendation_list.tolist()
+
+
 
         # Return single list for one user, instead of list of lists
         if single_user:
             ranking_list = ranking_list[0]
 
-        return ranking_list
 
+        if return_scores:
+            return ranking_list, scores_batch
 
-
-
-
-
-    def evaluateRecommendations(self, URM_test, at=5, minRatingsPerUser=1, exclude_seen=True,
-                                filterCustomItems = np.array([], dtype=np.int),
-                                filterCustomUsers = np.array([], dtype=np.int)):
-        """
-        Speed info:
-        - Sparse weighgs: batch mode is 2x faster than sequential
-        - Dense weighgts: batch and sequential speed are equivalent
-
-
-        :param URM_test:            URM to be used for testing
-        :param at: 5                    Length of the recommended items
-        :param minRatingsPerUser: 1     Users with less than this number of interactions will not be evaluated
-        :param exclude_seen: True       Whether to remove already seen items from the recommended items
-
-        :param mode: 'sequential', 'parallel', 'batch'
-        :param filterTopPop: False or decimal number        Percentage of items to be removed from recommended list and testing interactions
-        :param filterCustomItems: Array, default empty           Items ID to NOT take into account when recommending
-        :param filterCustomUsers: Array, default empty           Users ID to NOT take into account when recommending
-        :return:
-        """
-
-        import warnings
-
-        warnings.warn("DEPRECATED! Use Base.Evaluation.SequentialEvaluator.evaluateRecommendations()", DeprecationWarning)
-
-
-        from Base.Evaluation.Evaluator import SequentialEvaluator
-
-        evaluator = SequentialEvaluator(URM_test, [at], exclude_seen= exclude_seen,
-                                        minRatingsPerUser=minRatingsPerUser,
-                                        ignore_items=filterCustomItems, ignore_users=filterCustomUsers)
-
-        results_run, results_run_string = evaluator.evaluateRecommender(self)
-
-        results_run = results_run[at]
-
-        results_run_lowercase = {}
-
-        for key in results_run.keys():
-            results_run_lowercase[key.lower()] = results_run[key]
-
-
-        return results_run_lowercase
-
-
-
-
-
-
-
+        else:
+            return ranking_list
 
 
 
@@ -229,7 +232,7 @@ class Recommender(object):
 
 
     def saveModel(self, folder_path, file_name = None):
-        raise NotImplementedError("Recommender: saveModel not implemented")
+        raise NotImplementedError("BaseRecommender: saveModel not implemented")
 
 
 

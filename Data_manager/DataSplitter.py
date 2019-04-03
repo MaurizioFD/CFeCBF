@@ -69,6 +69,10 @@ class DataSplitter(object):
     def get_loaded_ICM_names(self):
         return self.get_dataReader_object().get_loaded_ICM_names()
 
+    def get_all_available_ICM_names(self):
+        return self.get_dataReader_object().get_all_available_ICM_names().copy()
+
+
     def get_loaded_ICM_dict(self):
         return self.get_dataReader_object().get_loaded_ICM_dict()
 

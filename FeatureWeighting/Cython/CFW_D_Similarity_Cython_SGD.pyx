@@ -28,7 +28,7 @@ cdef class CFW_D_Similarity_Cython_SGD:
 
     cdef double[:] data_list
     cdef int[:] row_list, col_list
-    cdef double[:] weights
+    cdef double[:] D
     cdef int n_features
 
 
@@ -44,8 +44,8 @@ cdef class CFW_D_Similarity_Cython_SGD:
     cdef int[:] dropout_mask
 
 
-    cdef int useAdaGrad, useRmsprop, useAdam
-    cdef int non_negative_weights
+    cdef int useAdaGrad, useRmsprop, useAdam, verbose
+    cdef int positive_only_D
 
     cdef double [:] sgd_cache_D
     cdef double gamma
@@ -57,10 +57,15 @@ cdef class CFW_D_Similarity_Cython_SGD:
 
     def __init__(self, row_list, col_list, data_list,
                  n_features, ICM, precompute_common_features = True,
-                 non_negative_weights = True, weights_initialization = None,
-                 use_dropout = False, dropout_perc = 0.3,
-                 learning_rate = 0.05, l1_reg = 0.0, l2_reg = 0.0,
+                 positive_only_D = True,
+                 weights_initialization_D = None,
+                 use_dropout = False,
+                 dropout_perc = 0.3,
+                 learning_rate = 0.05,
+                 l1_reg = 0.0,
+                 l2_reg = 0.0,
                  sgd_mode='adam',
+                 verbose = False,
                  gamma=0.995, beta_1=0.9, beta_2=0.999):
 
         super(CFW_D_Similarity_Cython_SGD, self).__init__()
@@ -71,15 +76,16 @@ cdef class CFW_D_Similarity_Cython_SGD:
 
         self.n_features = n_features
         self.learning_rate = learning_rate
+        self.verbose = verbose
         self.l1_reg = l1_reg
         self.l2_reg = l2_reg
 
-        self.non_negative_weights = non_negative_weights
+        self.positive_only_D = positive_only_D
 
-        if weights_initialization is not None:
-            self.weights = np.array(weights_initialization, dtype=np.float64)
+        if weights_initialization_D is not None:
+            self.D = np.array(weights_initialization_D, dtype=np.float64)
         else:
-            self.weights = np.zeros(self.n_features, dtype=np.float64)
+            self.D = np.zeros(self.n_features, dtype=np.float64)
 
 
         # RUN TEST
@@ -232,7 +238,7 @@ cdef class CFW_D_Similarity_Cython_SGD:
 
             for feature_index in range(num_common_features):
                 feature_id = self.common_features_id[feature_index]
-                similarity_value_weighted += self.weights[feature_id] * self.common_features_data[feature_index] * self.dropout_mask[feature_id]
+                similarity_value_weighted += self.D[feature_id] * self.common_features_data[feature_index] * self.dropout_mask[feature_id]
                 #similarity_value_unweighted += self.common_features_data[feature_index] * self.dropout_mask[feature_id]
 
             # The gradient is the prediction error
@@ -251,11 +257,11 @@ cdef class CFW_D_Similarity_Cython_SGD:
 
                     adaptive_gradient = self.compute_adaptive_gradient(feature_id, gradient)
 
-                    self.weights[feature_id] -= self.learning_rate * (adaptive_gradient + self.l1_reg + 2*self.l2_reg * self.weights[feature_id])
+                    self.D[feature_id] -= self.learning_rate * (adaptive_gradient + self.l1_reg + 2*self.l2_reg * self.D[feature_id])
 
                     # Clamp weight if needed
-                    if self.non_negative_weights and self.weights[feature_id] < 0.0:
-                        self.weights[feature_id] = 0.0
+                    if self.positive_only_D and self.D[feature_id] < 0.0:
+                        self.D[feature_id] = 0.0
 
 
             # Exponentiation of beta at the end of each sample
@@ -265,9 +271,9 @@ cdef class CFW_D_Similarity_Cython_SGD:
                 self.beta_2_power_t *= self.beta_2
 
 
-            if (sample_num % 10000000 == 0 and sample_num!=0) or sample_num==n_samples-1:
+            if self.verbose and ((sample_num % 10000000 == 0 and sample_num!=0) or sample_num==n_samples-1):
 
-                print("Processed {} out of {} samples ( {:.2f}% ) in {:.2f} seconds. Loss is {:.4E}. Sample per second: {:.0f}".format(
+                print("CFW_D_Similarity_Cython_SGD: Processed {} out of {} samples ( {:.2f}% ) in {:.2f} sec. Loss is {:.4E}. Sample per second: {:.0f}".format(
                       sample_num, n_samples,
                       100.0* float(sample_num)/n_samples,
                       time.time()-start_time_batch,
@@ -286,7 +292,7 @@ cdef class CFW_D_Similarity_Cython_SGD:
 
     def get_weights(self):
 
-        return np.array(self.weights).copy()
+        return np.array(self.D).copy()
 
 
 
@@ -369,22 +375,17 @@ cdef class CFW_D_Similarity_Cython_SGD:
         cdef int common_features_count = 0
         cdef int feature_index, feature_id
 
-        #print("New feature_common_unordered")
-
         for feature_index in range(len(feature_i)):
 
             feature_id = feature_i[feature_index]
             self.common_features_flag[feature_id] = True
             self.common_features_data_i[feature_id] = data_i[feature_index]
-            #print("common: added occurrence {}".format(feature_id))
-
 
         for feature_index in range(len(feature_j)):
 
             feature_id = feature_j[feature_index]
 
             if self.common_features_flag[feature_id]:
-                #print("common: found common {}".format(feature_id))
                 self.common_features_id[common_features_count] = feature_id
                 self.common_features_data[common_features_count] = self.common_features_data_i[feature_id] * data_j[feature_index]
                 common_features_count += 1
@@ -403,7 +404,8 @@ cdef class CFW_D_Similarity_Cython_SGD:
 
     def feature_common_test(self):
 
-        print("CFW_D_Similarity_Cython: feature_common_test")
+        if self.verbose:
+            print("CFW_D_Similarity_Cython: feature_common_test")
 
         # No duplicates
         f_i = np.array([0, 5, 8, 10, 19], dtype=np.int32)
@@ -465,5 +467,6 @@ cdef class CFW_D_Similarity_Cython_SGD:
 
 
 
-        print("CFW_D_Similarity_Cython: All tests passed")
+        if self.verbose:
+            print("CFW_D_Similarity_Cython: All tests passed")
 

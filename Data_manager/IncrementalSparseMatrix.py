@@ -264,7 +264,7 @@ class IncrementalSparseMatrix_FilterIDs(IncrementalSparseMatrix):
         :param n_cols:
         """
 
-        super(IncrementalSparseMatrix_FilterIDs, self).__init__()
+        super(IncrementalSparseMatrix_FilterIDs, self).__init__(dtype = dtype)
 
         self._row_list = []
         self._col_list = []

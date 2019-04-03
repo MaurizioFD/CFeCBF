@@ -7,9 +7,9 @@ Created on 13/12/18
 """
 
 from GraphBased.RP3betaRecommender import RP3betaRecommender
-from FW_Similarity.Cython.CFW_D_Similarity_Cython import CFW_D_Similarity_Cython, EvaluatorCFW_D_wrapper
+from FeatureWeighting.Cython.CFW_D_Similarity_Cython import CFW_D_Similarity_Cython, EvaluatorCFW_D_wrapper
 
-from Base.Evaluation.Evaluator import SequentialEvaluator
+from Base.Evaluation.Evaluator import EvaluatorHoldout
 
 from Data_manager.Movielens_20m.Movielens20MReader import Movielens20MReader
 from Data_manager.DataSplitter_k_fold import DataSplitter_Warm_k_fold
@@ -34,13 +34,13 @@ ICM = dataSplitter.get_ICM_from_name("ICM_genre")
 # In a cold items setting this should contain the indices of the warm items
 ignore_items = []
 
-evaluator_validation = SequentialEvaluator(URM_validation, cutoff_list=[5], ignore_items=ignore_items)
-evaluator_test = SequentialEvaluator(URM_test, cutoff_list=[5], ignore_items=ignore_items)
+evaluator_validation = EvaluatorHoldout(URM_validation, cutoff_list=[5], ignore_items=ignore_items)
+evaluator_test = EvaluatorHoldout(URM_test, cutoff_list=[5], ignore_items=ignore_items)
 
 # This is used by the ML model of CFeCBF to perform early stopping and may be omitted.
 # ICM_target allows to set a different ICM for this validation step, providing flexibility in including
 # features present in either validation or test but not in train
-evaluator_validation_earlystopping = EvaluatorCFW_D_wrapper(evaluator_validation, ICM_target=ICM, model_to_use="incremental")
+evaluator_validation_earlystopping = EvaluatorCFW_D_wrapper(evaluator_validation, ICM_target=ICM, model_to_use="last")
 
 
 
@@ -81,15 +81,16 @@ fw_parameters =  {'epochs': 200,
                   'topK': 100,
                   'use_dropout': True,
                   'dropout_perc': 0.7,
-                  'init_type': 'random',
-                  'positive_only_weights': False,
+                  'initialization_mode_D': 'random',
+                  'positive_only_D': False,
                   'normalize_similarity': True}
 
 recommender_fw = CFW_D_Similarity_Cython(URM_train, ICM, similarity_collaborative)
 recommender_fw.fit(**fw_parameters,
                    evaluator_object=evaluator_validation_earlystopping,
                    stop_on_validation=True,
-                   lower_validatons_allowed=10,
+                   validation_every_n = 5,
+                   lower_validations_allowed=10,
                    validation_metric="MAP")
 
 

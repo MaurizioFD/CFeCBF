@@ -32,3 +32,42 @@ note="Source: \url{https://github.com/MaurizioFD/CFeCBF}",
 
 
 See run_example.py for an example on how to use the code
+
+
+## Installation
+
+Note that this repository requires Python 3.6
+
+First we suggest you create an environment for this project using virtualenv (or another tool like conda)
+
+First checkout this repository, then enter in the repository folder and run this commands to create and activate a new environment:
+
+If you are using virtualenv:
+```Python
+virtualenv -p python3 CFeCBF
+source CFeCBF/bin/activate
+```
+If you are using conda:
+```Python
+conda create -n CFeCBF python=3.6 anaconda
+source activate CFeCBF
+```
+
+Then install all the requirements and dependencies
+```Python
+pip install -r requirements.txt
+```
+
+This repository already contains compiled Cython code for Linux and Windows x86. 
+In order to compile you must have installed: _gcc_ and _python3 dev_, which can be installed with the following commands:
+```Python
+sudo apt install gcc 
+sudo apt-get install python3-dev
+```
+
+At this point you can compile all Cython algorithms by running the following command. The script will compile within the current active environment. The code has been developed for Linux and Windows platforms. During the compilation you may see some warnings. 
+ 
+```Python
+python run_compile_all_cython.py
+```
+
